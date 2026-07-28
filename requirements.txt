@@ -6,4 +6,4 @@ torch
 plotly
 openpyxl
 xlrd
-scikit-learn
+xlwt
