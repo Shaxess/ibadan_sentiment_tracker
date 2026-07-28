@@ -2,33 +2,30 @@
 import streamlit as st
 import pandas as pd
 import plotly.express as px
+import os
 
 st.set_page_config(page_title="Ibadan Sentiment Tracker", layout="wide", page_icon="🇳🇬")
 
 st.title("🇳🇬 Ibadan Kidnap Rescue - Sentiment Tracker")
 st.caption("By Shakespeare Nwodo | Model: felixshakespeare/ibadan_sentiment_model")
 
-# Load model WITHOUT direct torch import at top
 @st.cache_resource
 def load_custom_model():
     try:
         from transformers import pipeline
         model_id = "felixshakespeare/ibadan_sentiment_model"
-        # Try custom model with fallback tokenizer
         try:
             pipe = pipeline("sentiment-analysis", model=model_id, tokenizer="distilbert-base-uncased")
             return pipe, f"✅ Loaded YOUR custom model: {model_id}"
         except Exception as e1:
-            # Try with same model as tokenizer (if you uploaded tokenizer)
             try:
                 pipe = pipeline("sentiment-analysis", model=model_id, tokenizer=model_id)
                 return pipe, f"✅ Loaded custom model (full): {model_id}"
             except Exception as e2:
-                # Fallback to base model
                 pipe = pipeline("sentiment-analysis", model="distilbert-base-uncased-finetuned-sst-2-english")
-                return pipe, f"⚠️ Custom model failed, using fallback. Error: {str(e2)[:150]}"
+                return pipe, f"⚠️ Fallback. Custom error: {str(e2)[:100]}"
     except Exception as e:
-        return None, f"❌ Error loading: {str(e)[:200]}"
+        return None, f"❌ Error: {str(e)[:200]}"
 
 pipe, status_msg = load_custom_model()
 
@@ -36,6 +33,14 @@ st.sidebar.header("📊 Model Status")
 st.sidebar.info(status_msg)
 st.sidebar.divider()
 st.sidebar.write("Dashboard: Relief, Neutral, Anger, Misinformation")
+
+# DEBUG: Show what files Streamlit sees
+st.sidebar.subheader("🔍 Debug: Files on GitHub")
+try:
+    files = os.listdir(".")
+    st.sidebar.write(files)
+except Exception as e:
+    st.sidebar.write(f"List error: {e}")
 
 st.header("🔍 Live Prediction")
 text = st.text_area("Paste tweet / comment:", height=120, placeholder="Thank God the children were rescued safely...")
@@ -51,9 +56,7 @@ if st.button("Analyze Sentiment", type="primary"):
                 result = pipe(text)[0]
                 label = result['label']
                 score = result['score']
-                
-                st.write(f"**Raw model output:** {label} ({score:.2%})")
-                
+                st.write(f"**Raw:** {label} ({score:.2%})")
                 ll = label.lower()
                 if "pos" in ll or "relief" in ll or "label_2" in ll:
                     st.success(f"**{label}** - Relief / Positive ({score:.2%})")
@@ -67,31 +70,50 @@ if st.button("Analyze Sentiment", type="primary"):
                 st.error(f"Prediction error: {e}")
 
 st.divider()
-st.header("📈 Dashboard")
+st.header("📈 Dashboard - Real Data")
 
 df_real = None
-for fname in ["ibadan_final_training2.xls", "ibadan_final_training2.xlsx"]:
-    try:
-        df_real = pd.read_excel(fname)
+excel_path = None
+# Try multiple possible paths
+candidates = ["ibadan_final_training2.xls", "ibadan_final_training2.xlsx", "./ibadan_final_training2.xls"]
+for cand in candidates:
+    if os.path.exists(cand):
+        excel_path = cand
         break
-    except:
-        continue
 
-if df_real is not None:
-    st.success(f"Loaded real data: {len(df_real)} rows")
-    st.dataframe(df_real.head(10), use_container_width=True)
-    # Try find sentiment column
-    for col in df_real.columns:
-        if "sentiment" in col.lower() or "label" in col.lower():
-            counts = df_real[col].value_counts().reset_index()
+if excel_path:
+    st.success(f"Found Excel: {excel_path} ({os.path.getsize(excel_path)/1024:.1f} KB)")
+    try:
+        # Try with xlrd for .xls
+        if excel_path.endswith(".xls"):
+            try:
+                df_real = pd.read_excel(excel_path, engine="xlrd")
+            except:
+                df_real = pd.read_excel(excel_path)
+        else:
+            df_real = pd.read_excel(excel_path, engine="openpyxl")
+        st.dataframe(df_real.head(20), use_container_width=True)
+        # Find sentiment column
+        sent_col = None
+        for col in df_real.columns:
+            if any(k in col.lower() for k in ["sentiment","label","emotion"]):
+                sent_col = col
+                break
+        if sent_col:
+            counts = df_real[sent_col].value_counts().reset_index()
             counts.columns = ["Sentiment","Count"]
-            fig = px.pie(counts, values="Count", names="Sentiment", title="Real Distribution")
-            st.plotly_chart(fig, use_container_width=True)
-            break
+            fig1 = px.pie(counts, values="Count", names="Sentiment", title=f"Real Distribution from {sent_col}")
+            st.plotly_chart(fig1, use_container_width=True)
+            fig2 = px.bar(counts, x="Sentiment", y="Count", color="Sentiment", title="Count by Sentiment")
+            st.plotly_chart(fig2, use_container_width=True)
+        else:
+            st.warning(f"No sentiment column found. Columns: {list(df_real.columns)}")
+            st.write(df_real.columns.tolist())
+    except Exception as e:
+        st.error(f"Error reading Excel {excel_path}: {e}")
+        st.info("Trying to install xlrd? Check requirements.txt has xlrd")
 else:
-    st.info("Upload ibadan_final_training2.xls to GitHub to see real data chart here")
-    sample = pd.DataFrame({"Sentiment":["Relief","Neutral","Anger","Misinformation"],"Count":[45,25,20,10]})
-    fig = px.bar(sample, x="Sentiment", y="Count", color="Sentiment", title="Sample (upload Excel to replace)")
-    st.plotly_chart(fig, use_container_width=True)
+    st.warning("Excel not found at root. Checked: " + ", ".join(candidates))
+    st.info("Your repo has it, but Streamlit path is different. Rebooting after deleting big folder usually fixes.")
 
-st.caption("Built by Shakespeare Nwodo | felixshakespeare/ibadan_sentiment_model | Streamlit Cloud")
+st.caption("Built by Shakespeare Nwodo | felixshakespeare/ibadan_sentiment_model")
