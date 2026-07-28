@@ -1,5 +1,8 @@
+--extra-index-url https://download.pytorch.org/whl/cpu
 streamlit
-transformers
 pandas
-scikit-learn
+transformers
+torch
 plotly
+openpyxl
+scikit-learn
